@@ -239,6 +239,29 @@ API key と base URL の両方が空の場合、このレイヤーは無効に�
 | `MULTICA_AGENT_TEMP_BASE` | `/tmp`（Linux/macOS） | Linux/macOS 専用。作業ごとのプライベート一時ディレクトリの親ディレクトリ。既存かつ書き込み可能な絶対パスである必要があり、無効な値の場合は `/tmp` にフォールバックせず作業の開始に失敗します。短いパスを選んでください。子ツールがその配下に AF_UNIX ソケットを作成する場合があり、`sun_path` の上限は Linux で 108 バイト、macOS で 104 バイトです |
 | `MULTICA_KEEP_ENV_AFTER_TASK` | `false` | デバッグ用に作業ディレクトリを保持 |
 
+### エージェント task に注入される変数
+
+デーモンがエージェント task を開始すると、次の変数をランタイムプロセスに注入します。これらは実行中の task を表し、`multica` CLI が task ローカルの設定と認証を使用できるようにします。値はデーモンが管理するため、エージェントのカスタム環境にある同名の変数では上書きできません。
+
+| 変数 | task 内の値 |
+|---|---|
+| `MULTICA_TOKEN` | サーバーがエージェント、task、ワークスペースに紐づけた task スコープの `mat_` API 認証情報 |
+| `MULTICA_TASK_ID` | 実行中の task の ID |
+| `MULTICA_TASK_CONFIG_ROOT` | task 専用の Multica CLI 設定ルート |
+| `MULTICA_TASK_WORKSPACES_ROOT` | デーモンが管理する task ワークスペースのルート |
+| `MULTICA_AGENT_ID` | 割り当てられたエージェントの ID |
+| `MULTICA_AGENT_NAME` | 割り当てられたエージェントの表示名 |
+| `MULTICA_WORKSPACE_ID` | task が属するワークスペースの ID |
+| `MULTICA_SERVER_URL` | デーモンが選択した Multica サーバー URL |
+| `MULTICA_DAEMON_PORT` | `multica repo checkout` など task 専用コマンドが使うローカルデーモンのヘルス/API ポート |
+| `MULTICA_TASK_SLOT` | デーモン全体の同時実行プール内のスロット。GPU などスロット番号付きリソースを複数 task で共有する場合に利用可能 |
+
+`MULTICA_TOKEN` を使うリクエストの作成者は、リクエストヘッダーや token 所有者の `/api/me` 応答ではなく、サーバーが決定します。task のコメントなどの書き込みは、割り当てられたエージェントと実行中の task に帰属します。人間専用のエンドポイントは task 認証情報を引き続き拒否します。
+
+<Callout type="warning">
+カスタムランタイムが別のプロセスやネストしたエージェント harness を起動しても、Multica はこれらの値を第 2 層へ自動注入しません。必要な変数だけを転送してください。CLI/API アクセスでは通常 `MULTICA_TOKEN`、`MULTICA_TASK_ID`、`MULTICA_WORKSPACE_ID`、`MULTICA_SERVER_URL` が必要です。token は子プロセスの環境内だけに保持し、prompt、ログ、リポジトリファイル、永続設定には書き込まないでください。子プロセスは親 task の ID と権限を共有し、独立した新しいスコープ ID は受け取りません。
+</Callout>
+
 各 AI コーディングツールは `MULTICA_<PROVIDER>_PATH` でコマンドパスを上書きでき、モデル上書き対応ツールでは `MULTICA_<PROVIDER>_MODEL` も利用できます。QwenPaw と MiniMax Code にはモデル変数がなく、MiniMax Code のパス変数は `MULTICA_MCODE_PATH` です。詳しくは [AI コーディングツール比較](/providers#モデルの取得元) を参照してください。DeepSeek Harness は `MULTICA_DSH_PATH` と `MULTICA_DSH_MODEL` に対応しています（値は dsh のモデルカタログにあるモデル ID、例: `deepseek-official/deepseek-chat`）。ZeroClaw は `MULTICA_ZEROCLAW_PATH` に対応しますが、モデル変数はありません。モデルは ZeroClaw のエージェント設定で管理します。マシン全体のデフォルト引数 `MULTICA_<PROVIDER>_ARGS` は、現在 Claude Code、Codex、CodeBuddy、Qwen Code、QwenPaw の 5 ツールに対応しています。対応する変数は `MULTICA_CLAUDE_ARGS`、`MULTICA_CODEX_ARGS`、`MULTICA_CODEBUDDY_ARGS`、`MULTICA_QWEN_ARGS`、`MULTICA_QWENPAW_ARGS` です。例:
 
 ```dotenv
