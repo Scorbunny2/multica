@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -65,6 +66,31 @@ func (s *openclawCLIStub) exec(ctx context.Context, bin string, args ...string) 
 		return s.derivedValidateResponse()
 	}
 	return "", fmt.Errorf("openclawCLIStub: unexpected args %q", key)
+}
+
+func TestOpenclawResolvedFullConfigRetriesWithEmptyRootPath(t *testing.T) {
+	stub := installOpenclawStub(t, map[string]openclawResponse{
+		"config get --json": {
+			err: errors.New(`openclaw config get --json: exit status 1 (stderr: Missing required argument "path".
+Try: openclaw config get --help)`),
+		},
+		"config get  --json": {stdout: `{"mcp":{"servers":{}}}`},
+	})
+
+	got, err := openclawResolvedFullConfig(stub.bin, time.Second)
+	if err != nil {
+		t.Fatalf("openclawResolvedFullConfig: %v", err)
+	}
+	if got["mcp"] == nil {
+		t.Fatalf("resolved config = %#v, missing mcp object", got)
+	}
+	if len(stub.calls) != 2 {
+		t.Fatalf("OpenClaw calls = %d, want 2: %#v", len(stub.calls), stub.calls)
+	}
+	wantArgs := []string{"config", "get", "", "--json"}
+	if !reflect.DeepEqual(stub.calls[1].args, wantArgs) {
+		t.Errorf("retry args = %#v, want %#v", stub.calls[1].args, wantArgs)
+	}
 }
 
 // derivedValidateResponse answers `config validate --json` from the registered
