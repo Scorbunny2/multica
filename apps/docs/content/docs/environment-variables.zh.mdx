@@ -239,28 +239,7 @@ API key 与 base URL 都为空时，这一层关闭，不会发出任何上游�
 | `MULTICA_AGENT_TEMP_BASE` | `/tmp`（Linux/macOS） | 仅适用于 Linux/macOS。私有 task 临时目录的父目录；必须是现有、可写的绝对路径，无效值会使 task 启动失败，不会回退到 `/tmp`。请选择较短的路径——子工具可能会在其中绑定 AF_UNIX socket；Linux 的 `sun_path` 上限为 108 字节，macOS 为 104 字节 |
 | `MULTICA_KEEP_ENV_AFTER_TASK` | `false` | 保留 task 目录用于调试 |
 
-### 注入智能体 task 的变量
-
-守护进程启动智能体 task 时，会把以下变量注入运行时进程。它们描述当前 task，并让 `multica` CLI 使用 task 本地的配置和认证。这些值由守护进程管理；智能体自定义环境中的同名变量无法覆盖它们。
-
-| 变量 | task 中的值 |
-|---|---|
-| `MULTICA_TOKEN` | 服务端绑定到智能体、task 和工作区的 task 级 `mat_` API 凭据 |
-| `MULTICA_TASK_ID` | 当前 task 的 ID |
-| `MULTICA_TASK_CONFIG_ROOT` | 私有的 task 本地 Multica CLI 配置根目录 |
-| `MULTICA_TASK_WORKSPACES_ROOT` | 守护进程管理的 task 工作区根目录 |
-| `MULTICA_AGENT_ID` | 被指派智能体的 ID |
-| `MULTICA_AGENT_NAME` | 被指派智能体的显示名称 |
-| `MULTICA_WORKSPACE_ID` | task 所属工作区的 ID |
-| `MULTICA_SERVER_URL` | 守护进程选定的 Multica 服务地址 |
-| `MULTICA_DAEMON_PORT` | 本地守护进程的健康检查/API 端口，供 `multica repo checkout` 等仅限 task 的命令使用 |
-| `MULTICA_TASK_SLOT` | 守护进程全局并发池中的槽位；多个 task 共享 GPU 等按槽位编号的资源时可使用它 |
-
-对于使用 `MULTICA_TOKEN` 的请求，作者身份由服务端决定，而不是由请求头或 token 所有者的 `/api/me` 响应决定。任务评论等写入操作会归属到被指派的智能体和当前 task；仅限人类的接口仍会拒绝 task 凭据。
-
-<Callout type="warning">
-如果自定义运行时启动了另一个进程或嵌套智能体 harness，Multica 不会自动把这些值注入第二层。只转发它所需的变量——通过 CLI/API 访问时通常是 `MULTICA_TOKEN`、`MULTICA_TASK_ID`、`MULTICA_WORKSPACE_ID` 和 `MULTICA_SERVER_URL`——并让 token 仅存在于子进程环境中。不要把它写入 prompt、日志、仓库文件或持久配置。子进程与父 task 共享身份和权限，不会获得一个新的独立作用域身份。
-</Callout>
+守护进程注入智能体 task 的内部上下文见 [Task 运行时环境](/daemon-runtimes#task-运行时环境)。
 
 各 AI 编程工具可以使用 `MULTICA_<PROVIDER>_PATH` 覆盖命令路径；支持模型覆盖的工具还可以使用 `MULTICA_<PROVIDER>_MODEL`。QwenPaw 和 MiniMax Code 没有模型变量，因为 Multica 不会向它们传模型；MiniMax Code 的路径变量是 `MULTICA_MCODE_PATH`。详见 [AI 编程工具对比](/providers#模型来源)。DeepSeek Harness 支持 `MULTICA_DSH_PATH` 和 `MULTICA_DSH_MODEL`（取值为 dsh 模型目录中的模型 id，例如 `deepseek-official/deepseek-chat`）。ZeroClaw 支持 `MULTICA_ZEROCLAW_PATH`，但没有模型变量；模型由 ZeroClaw 的智能体配置管理。全机默认参数 `MULTICA_<PROVIDER>_ARGS` 目前支持 Claude Code、Codex、CodeBuddy、Qwen Code 和 QwenPaw 五款工具。对应变量是 `MULTICA_CLAUDE_ARGS`、`MULTICA_CODEX_ARGS`、`MULTICA_CODEBUDDY_ARGS`、`MULTICA_QWEN_ARGS` 和 `MULTICA_QWENPAW_ARGS`。例如：
 
