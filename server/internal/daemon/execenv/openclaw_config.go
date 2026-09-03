@@ -1097,6 +1097,30 @@ func isOpenclawConfigFileUnsupported(err error) bool {
 		(strings.Contains(msg, "unknown") && strings.Contains(msg, "config") && strings.Contains(msg, "file"))
 }
 
+// isOpenclawRootPathRequired identifies the current OpenClaw CLI's error for
+// omitting the optional root path from `config get`. Keep this narrow so that
+// other failures remain fail-closed instead of being retried with a different
+// invocation.
+func isOpenclawRootPathRequired(stdout string, err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	msg := strings.ToLower(stdout + "\n" + err.Error())
+	return strings.Contains(msg, "missing required argument") && strings.Contains(msg, "path")
+}
+
+// openclawConfigGetRoot reads the fully resolved root config. Some OpenClaw
+// CLI versions require an explicit empty path argument even though the path is
+// optional in the documented command. Retry only that known compatibility
+// failure while preserving the shared timeout context.
+func openclawConfigGetRoot(ctx context.Context, bin string) (string, error) {
+	out, err := openclawExec(ctx, bin, "config", "get", "--json")
+	if !isOpenclawRootPathRequired(out, err) {
+		return out, err
+	}
+	return openclawExec(ctx, bin, "config", "get", "", "--json")
+}
+
 // openclawResolvedFullConfig fetches the user's fully resolved openclaw
 // config via `openclaw config get --json` (no key path — root). The CLI's
 // loader handles JSON5 / $include / env-substitution and emits a flat JSON
@@ -1111,7 +1135,7 @@ func isOpenclawConfigFileUnsupported(err error) bool {
 func openclawResolvedFullConfig(bin string, timeout time.Duration) (map[string]any, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	out, err := openclawExec(ctx, bin, "config", "get", "--json")
+	out, err := openclawConfigGetRoot(ctx, bin)
 	if err != nil {
 		return nil, annotateOpenclawJSONError(err, out)
 	}
