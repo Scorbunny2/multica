@@ -239,6 +239,29 @@ The variables below are read on the computer that runs your agents, not in the A
 | `MULTICA_AGENT_TEMP_BASE` | `/tmp` (Linux/macOS) | Linux/macOS only. Parent directory for private per-task temp dirs; must be an existing, writable absolute directory, and an invalid value fails task startup instead of falling back to `/tmp`. Pick a short path — child tools may bind AF_UNIX sockets under it, and `sun_path` is limited to 108 bytes on Linux and 104 on macOS |
 | `MULTICA_KEEP_ENV_AFTER_TASK` | `false` | Keep task directories for debugging |
 
+### Variables injected into agent tasks
+
+When the daemon starts an agent task, it injects the following variables into the runtime process. They describe the active task and let the `multica` CLI use task-local configuration and authentication. These values are owned by the daemon: entries with the same names in an agent's custom environment cannot override them.
+
+| Variable | Value in a task |
+|---|---|
+| `MULTICA_TOKEN` | Task-scoped `mat_` API credential bound by the server to the agent, task, and workspace |
+| `MULTICA_TASK_ID` | ID of the active task |
+| `MULTICA_TASK_CONFIG_ROOT` | Private task-local Multica CLI configuration root |
+| `MULTICA_TASK_WORKSPACES_ROOT` | Root of the daemon-managed task workspaces |
+| `MULTICA_AGENT_ID` | ID of the assigned agent |
+| `MULTICA_AGENT_NAME` | Display name of the assigned agent |
+| `MULTICA_WORKSPACE_ID` | ID of the task's workspace |
+| `MULTICA_SERVER_URL` | Multica server URL selected by the daemon |
+| `MULTICA_DAEMON_PORT` | Local daemon health/API port used by task-only commands such as `multica repo checkout` |
+| `MULTICA_TASK_SLOT` | Slot in the daemon-wide concurrency pool; useful when several tasks share slot-indexed resources such as GPUs |
+
+The server, not request headers or the token owner's `/api/me` response, determines authorship for `MULTICA_TOKEN` requests. Writes such as issue comments are attributed to the assigned agent and active task. Human-only endpoints still reject task credentials.
+
+<Callout type="warning">
+If a custom runtime starts another process or a nested agent harness, Multica does not automatically inject these values into that second layer. Forward only the variables it needs—normally `MULTICA_TOKEN`, `MULTICA_TASK_ID`, `MULTICA_WORKSPACE_ID`, and `MULTICA_SERVER_URL` for CLI/API access—and keep the token in the child process environment. Do not write it to a prompt, log, repository file, or persistent configuration. The child shares the parent task's identity and permissions; it does not receive a new independently scoped identity.
+</Callout>
+
 Each AI coding tool accepts `MULTICA_<PROVIDER>_PATH` and `MULTICA_<PROVIDER>_MODEL` to override the command path and default model. QwenPaw and MiniMax Code have no model variable because Multica never sends them a model; MiniMax Code's path variable is `MULTICA_MCODE_PATH` — see [AI coding tools comparison](/providers#model-sources). DeepSeek Harness supports `MULTICA_DSH_PATH` and `MULTICA_DSH_MODEL` (a model id from the dsh catalog, e.g. `deepseek-official/deepseek-chat`). Dim supports `MULTICA_DIM_PATH` and `MULTICA_DIM_MODEL` (a model id from the dim catalog). ZeroClaw supports `MULTICA_ZEROCLAW_PATH` but has no model variable; its agent profile owns the model selection. Machine-wide default arguments via `MULTICA_<PROVIDER>_ARGS` are currently supported for five tools: Claude Code, Codex, CodeBuddy, Qwen Code, and QwenPaw. The variables are `MULTICA_CLAUDE_ARGS`, `MULTICA_CODEX_ARGS`, `MULTICA_CODEBUDDY_ARGS`, `MULTICA_QWEN_ARGS`, and `MULTICA_QWENPAW_ARGS`. For example:
 
 ```dotenv
