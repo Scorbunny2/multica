@@ -34,9 +34,11 @@ var codexBlockedArgs = map[string]blockedArgMode{
 }
 
 const (
-	codexFastServiceTier     = "priority"
-	codexStandardServiceTier = "default"
-	codexFastModeFeature     = "fast_mode"
+	codexFastServiceTier              = "priority"
+	codexStandardServiceTier          = "default"
+	codexFastModeFeature              = "fast_mode"
+	codexRemoteCompactionV2Feature    = "remote_compaction_v2"
+	minCodexRemoteCompactionV2Version = "0.146.0"
 )
 
 // codexStderrTailBytes bounds the stderr tail captured for inclusion in
@@ -339,12 +341,39 @@ func enforceCodexFastMode(args []string, logger *slog.Logger) []string {
 // prefix unfiltered would let a profile override the tier the agent explicitly
 // selected, inverting the precedence this package promises (GH #7046).
 func stripCodexFastModeConflicts(args []string, logger *slog.Logger) []string {
-	args = filterCodexConfigOverrides(
+	return stripCodexFeatureConflicts(
 		args,
+		codexFastModeFeature,
 		codexManagedFastModeConfigKeyRe,
-		"features.fast_mode",
 		logger,
 	)
+}
+
+// enforceCodexRemoteCompactionV2 keeps daemon-managed Codex tasks off the
+// retired /responses/compact endpoint. A stale user config with this feature
+// disabled is copied into the isolated task home and makes current Codex
+// releases fail every automatic compaction with 404 (GH #8000,
+// openai/codex#42468). The override is process-local: the shared user config is
+// never changed.
+func enforceCodexRemoteCompactionV2(args []string, logger *slog.Logger) []string {
+	return append(
+		stripCodexFeatureConflicts(
+			args,
+			codexRemoteCompactionV2Feature,
+			codexManagedRemoteCompactionV2ConfigKeyRe,
+			logger,
+		),
+		"--enable", codexRemoteCompactionV2Feature,
+	)
+}
+
+func stripCodexFeatureConflicts(
+	args []string,
+	feature string,
+	configKeyRe *regexp.Regexp,
+	logger *slog.Logger,
+) []string {
+	args = filterCodexConfigOverrides(args, configKeyRe, "features."+feature, logger)
 	filtered := make([]string, 0, len(args)+2)
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
@@ -360,10 +389,10 @@ func stripCodexFastModeConflicts(args []string, logger *slog.Logger) []string {
 			if !hasInlineValue && i+1 < len(args) {
 				value = args[i+1]
 			}
-			if value == codexFastModeFeature {
+			if value == feature {
 				if logger != nil {
 					logger.Warn("codex: ignored lower-priority feature disable",
-						"feature", codexFastModeFeature)
+						"feature", feature)
 				}
 				if !hasInlineValue {
 					i++
@@ -394,6 +423,9 @@ var codexManagedMcpConfigKeyRe = regexp.MustCompile(`^\s*mcp_servers(?:\s*\.|\s*
 
 var codexManagedFastModeConfigKeyRe = regexp.MustCompile(
 	`^\s*features\s*\.\s*fast_mode\s*(?:=|$)`)
+
+var codexManagedRemoteCompactionV2ConfigKeyRe = regexp.MustCompile(
+	`^\s*features\s*\.\s*remote_compaction_v2\s*(?:=|$)`)
 
 // A daemon-managed shell_environment_policy must also win over profile and
 // custom-arg overrides. Match root and profile policy keys without catching an
@@ -1018,6 +1050,21 @@ func (b *codexBackend) executeOnce(ctx context.Context, prompt string, opts Exec
 		})
 	}
 	codexArgs := buildCodexArgs(opts, b.cfg.Logger)
+	// remote_compaction_v2 is a Codex-specific compatibility switch, so never
+	// inject it into a custom executable that merely declares protocol_family
+	// codex. Version-gating also keeps the unknown flag away from older Codex
+	// releases that predate the stable v2 implementation.
+	if b.cfg.BuiltinRuntime && codexVersionAtLeast(b.cfg.CodexVersion, minCodexRemoteCompactionV2Version) {
+		runtimeCmd = runtimeCmd.withFilteredPrefix(func(prefix []string) []string {
+			return stripCodexFeatureConflicts(
+				prefix,
+				codexRemoteCompactionV2Feature,
+				codexManagedRemoteCompactionV2ConfigKeyRe,
+				b.cfg.Logger,
+			)
+		})
+		codexArgs = enforceCodexRemoteCompactionV2(codexArgs, b.cfg.Logger)
+	}
 	cmd := runtimeCmd.exec(runCtx, codexArgs...)
 	hideAgentWindow(cmd)
 	// Run codex in its own process group so a cancel-on-stuck cleanup

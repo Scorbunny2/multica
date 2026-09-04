@@ -4350,6 +4350,46 @@ func TestBuildCodexArgsFutureServiceTierDoesNotForceFastMode(t *testing.T) {
 	}
 }
 
+func TestEnforceCodexRemoteCompactionV2OverridesStaleConfig(t *testing.T) {
+	t.Parallel()
+
+	args := []string{
+		"app-server", "--listen", "stdio://",
+		"--disable", codexRemoteCompactionV2Feature,
+		"--disable", "memories",
+		"-c", "features.remote_compaction_v2=false",
+		"-c", "features.memories=false",
+	}
+
+	want := []string{
+		"app-server", "--listen", "stdio://",
+		"--disable", "memories",
+		"-c", "features.memories=false",
+		"--enable", codexRemoteCompactionV2Feature,
+	}
+	if got := enforceCodexRemoteCompactionV2(args, slog.Default()); !reflect.DeepEqual(got, want) {
+		t.Fatalf("enforceCodexRemoteCompactionV2 = %v, want %v", got, want)
+	}
+}
+
+func TestCodexRemoteCompactionV2VersionFloor(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		version string
+		want    bool
+	}{
+		{version: "0.145.9", want: false},
+		{version: "0.146.0", want: true},
+		{version: "codex-cli 0.153.0-alpha.5", want: true},
+		{version: "unknown", want: false},
+	} {
+		if got := codexVersionAtLeast(tc.version, minCodexRemoteCompactionV2Version); got != tc.want {
+			t.Errorf("codexVersionAtLeast(%q, %q) = %v, want %v", tc.version, minCodexRemoteCompactionV2Version, got, tc.want)
+		}
+	}
+}
+
 func TestBuildCodexArgsDoesNotLeakMcpToArgv(t *testing.T) {
 	t.Parallel()
 
